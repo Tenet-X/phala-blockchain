@@ -1298,10 +1298,15 @@ fn dispatch_block(input: DispatchBlockReq) -> Result<Value, Value> {
         .iter()
         .map(|d| Decode::decode(&mut &d[..]))
         .collect();
-    let blocks = parsed_blocks.map_err(|_| error_msg("Invalid block"))?;
+    let all_blocks = parsed_blocks.map_err(|_| error_msg("Invalid block"))?;
 
-    // validate blocks
     let mut local_state = LOCAL_STATE.lock().unwrap();
+    // Ignore processed blocks
+    let blocks: Vec<_> = all_blocks
+        .iter()
+        .filter(|b| b.block_header.number >= local_state.blocknum)
+        .collect();
+    // Validate blocks
     let first_block = &blocks
         .first()
         .ok_or_else(|| error_msg("No block in the request"))?;
@@ -1319,7 +1324,6 @@ fn dispatch_block(input: DispatchBlockReq) -> Result<Value, Value> {
         if block.block_header.hash() != *expected_hash {
             return Err(error_msg("Unexpected block hash"));
         }
-        // TODO: examine extrinsic merkle tree
     }
 
     let ecdh_privkey = ecdh::clone_key(
@@ -1516,6 +1520,10 @@ fn get_info(_input: &Map<String, Value>) -> Result<Value, Value> {
     let blocknum = local_state.blocknum;
     let machine_id = local_state.machine_id;
 
+    let system_state = SYSTEM_STATE.lock().unwrap();
+    let sys_seq_start = system_state.egress.sequence;
+    let sys_len = system_state.egress.queue.len();
+
     Ok(json!({
         "initialized": initialized,
         "public_key": s_pk,
@@ -1524,6 +1532,10 @@ fn get_info(_input: &Map<String, Value>) -> Result<Value, Value> {
         "blocknum": blocknum,
         "machine_id": machine_id,
         "dev_mode": local_state.dev_mode,
+        "system_egress": {
+            "sequence": sys_seq_start,
+            "len": sys_len,
+        }
     }))
 }
 
