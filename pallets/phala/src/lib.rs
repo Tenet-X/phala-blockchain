@@ -3,6 +3,7 @@ extern crate alloc;
 use sp_core::U256;
 use sp_std::prelude::*;
 use sp_std::{cmp, vec};
+use sp_std::convert::TryFrom;
 
 use frame_support::{fail, decl_error, decl_event, decl_module, decl_storage, dispatch, ensure};
 use frame_system::{ensure_root, ensure_signed, Pallet as System};
@@ -226,9 +227,6 @@ decl_event!(
 		AccountId = <T as frame_system::Config>::AccountId,
 		Balance = BalanceOf<T>,
 	{
-		// Debug events
-		LogString(Vec<u8>),
-		LogI32(i32),
 		// Chain events
 		CommandPushed(AccountId, u32, Vec<u8>, u64),
 		TransferToTee(AccountId, Balance),
@@ -412,7 +410,7 @@ decl_module! {
 			ensure!(Stash::<T>::contains_key(&who), Error::<T>::NotController);
 			let stash = Stash::<T>::get(&who);
 			// Validate report
-			let sig_cert = webpki::EndEntityCert::from(&raw_signing_cert);
+			let sig_cert = webpki::EndEntityCert::try_from(&raw_signing_cert[..]);
 			ensure!(sig_cert.is_ok(), Error::<T>::InvalidIASSigningCert);
 			let sig_cert = sig_cert.unwrap();
 			let verify_result = sig_cert.verify_signature(
@@ -422,7 +420,7 @@ decl_module! {
 			);
 			ensure!(verify_result.is_ok(), Error::<T>::InvalidIASSigningCert);
 
-			let now = T::UnixTime::now().as_millis().saturated_into::<u64>();
+			let now = T::UnixTime::now().as_secs().saturated_into::<u64>();
 
 			// Validate certificate
 			let chain: Vec<&[u8]> = Vec::new();
@@ -788,7 +786,6 @@ impl<T: Config> Module<T> {
 		serialized_pk: &Vec<u8>,
 		data: &impl SignedDataType<Vec<u8>>,
 	) -> dispatch::DispatchResult {
-		use sp_std::convert::TryFrom;
 		ensure!(serialized_pk.len() == 33, Error::<T>::InvalidPubKey);
 		let pubkey = sp_core::ecdsa::Public::try_from(serialized_pk.as_slice())
 			.map_err(|_| Error::<T>::InvalidPubKey)?;
