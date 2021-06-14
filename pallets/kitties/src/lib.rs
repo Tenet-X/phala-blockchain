@@ -51,6 +51,9 @@ impl<AccountId: Encode> SignedDataType<Vec<u8>> for KittyTransferData<AccountId>
 
 pub trait Config: balances::Config {
 	type Event: From<Event<Self>> + Into<<Self as system::Config>::Event>;
+
+	/// Something that provides randomness in the runtime.
+	type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
 }
 
 decl_event!(
@@ -113,7 +116,6 @@ decl_storage! {
 
 decl_module! {
 	pub struct Module<T: Config> for enum Call where origin: T::Origin {
-
 		fn deposit_event()= default;
 
 		#[weight = 0]
@@ -127,7 +129,7 @@ decl_module! {
 			let all_kitties_count = Self::all_kitties_count();
 			let new_all_kitties_count = all_kitties_count.checked_add(1).ok_or("Overflow adding a new kitty to total supply")?;
 			let nonce = <Nonce>::get();
-			let random_hash = (<pallet_randomness_collective_flip::Module<T>>::random_seed(), &sender, nonce)
+			let random_hash = (Self::generate_random_number(), &sender, nonce)
 				.using_encoded(<T as system::Config>::Hashing::hash);
 
 			ensure!(!<KittyOwner<T>>::contains_key(random_hash), "Kitty already exists");
@@ -225,6 +227,7 @@ impl<T: Config> Module<T> {
 	pub fn account_id() -> T::AccountId {
 		PALLET_ID.into_account()
 	}
+
 	pub fn verify_signature(
 		serialized_pk: &Vec<u8>,
 		data: &impl SignedDataType<Vec<u8>>,
@@ -250,5 +253,21 @@ impl<T: Config> Module<T> {
 		}
 		pk.copy_from_slice(&serialized_pk);
 		secp256k1::PublicKey::parse_compressed(&pk).map_err(|_| Error::<T>::InvalidPubKey)
+	}
+
+	// Cheat from pallet_lottery
+	//
+	// Generate a random number from a given seed.
+	// Note that there is potential bias introduced by using modulus operator.
+	// You should call this function with different seed values until the random
+	// number lies within `u32::MAX - u32::MAX % n`.
+	// TODO: deal with randomness freshness
+	// https://github.com/paritytech/substrate/issues/8311
+	fn generate_random_number() -> u32 {
+		let phrase = b"kitties";
+		let (random_seed, _) = T::Randomness::random(phrase);
+		let random_number = <u32>::decode(&mut random_seed.as_ref())
+			.expect("secure hashes should always be bigger than u32; qed");
+		random_number
 	}
 }
